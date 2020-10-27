@@ -6,6 +6,8 @@ use std::pin::Pin;
 use futures::{Future, StreamExt};
 use bytes::Bytes;
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
+use codec::{Encode, Decode, Input, Output, Error};
+
 use libp2p::swarm::protocols_handler::OneShotHandler;
 use libp2p::core::upgrade::{ReadOneError, read_one, write_one};
 use wasm_timer;
@@ -16,109 +18,144 @@ use sp_runtime::traits::Block;
 use std::time::Instant;
 // use sc_network::config::Client;
 use crate::schema;
+use bitflags::bitflags;
 
 const MAX_MESSAGE_SIZE: usize = 10240;  // bytes
 
-#[derive(Debug)]
-pub enum PolkadotProtocolError {
-    ReadError(ReadOneError),
-    ParseError(FromUtf8Error),
+bitflags! {
+	pub struct BlockAttributes: u8 {
+		const HEADER = 0b00000001;
+		const BODY = 0b00000010;
+		const RECEIPT = 0b00000100;
+		const MESSAGE_QUEUE = 0b00001000;
+		const JUSTIFICATION = 0b00010000;
+	}
 }
 
-impl From<ReadOneError> for PolkadotProtocolError {
-    fn from(err: ReadOneError) -> Self {
-        PolkadotProtocolError::ReadError(err)
+impl BlockAttributes {
+    pub fn to_be_u32(&self) -> u32 {
+        u32::from_be_bytes([self.bits(), 0, 0, 0])
+    }
+
+    pub fn from_be_u32(encoded: u32) -> Result<Self, Error> {
+        BlockAttributes::from_bits(encoded.to_be_bytes()[0])
+            .ok_or_else(|| Error::from("Invalid BlockAttributes"))
     }
 }
 
-impl From<FromUtf8Error> for PolkadotProtocolError {
-    fn from(err: FromUtf8Error) -> Self {
-        PolkadotProtocolError::ParseError(err)
+impl Encode for BlockAttributes {
+    fn encode_to<T: Output>(&self, dest: &mut T) {
+        dest.push_byte(self.bits())
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct PolkadotProtocolConfig {}
+impl codec::EncodeLike for BlockAttributes {}
 
-impl PolkadotProtocolConfig {
+impl Decode for BlockAttributes {
+    fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
+        Self::from_bits(input.read_byte()?).ok_or_else(|| Error::from("Invalid bytes"))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
+pub struct gBlockRequest<Hash, Number> {
+    pub id: u64,
+    pub fields: BlockAttributes,
+    pub from: FromBlock<Hash, Number>,
+    pub to: Option<Hash>,
+    pub direction: Direction,
+    pub max: Option<u32>,
+}
+
+pub type BlockRequest<B> = gBlockRequest<
+    <B as BlockT>::Hash,
+    <<B as BlockT>::Header as HeaderT>::Number,
+>;
+
+#[derive(Debug, Clone)]
+pub struct PolkadotInProtocol<B> {
+    marker: Phantom<B>,
+}
+
+impl<B: Block>  PolkadotInProtocol <B>{
     pub fn new() -> PolkadotProtocolConfig {
         PolkadotProtocolConfig {}
     }
 }
 
-impl UpgradeInfo for PolkadotProtocolConfig {
+impl<B: Block> UpgradeInfo for PolkadotInProtocol<B> {
     type Info = Bytes;
     type InfoIter = iter::Once<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
         let proto = String::from("/dot/block-announces/1");
+        let proto1 = String::from("/dot/sync/2");
         iter::once(Bytes::from(proto))
     }
 }
 
-impl<TSocket> InboundUpgrade<TSocket> for PolkadotProtocolConfig
+impl<B: Block,TSocket> InboundUpgrade<TSocket> for PolkadotInProtocol<B>
 where
     B: Block,
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
     type Output = PolkadotProtocolEvent<B,TSocket>;
-    type Error = PolkadotProtocolError;
-    type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
-    //type Future = ReadOneThen<TSocket, fn(Vec<u8>) -> Result<String, PolkadotProtocolError>>;
+    type Error = ReadOneError;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self,mut socket: TSocket, _: Self::Info) -> Self::Future {
         let handling_start = wasm_timer::Instant::now();
-        let future = async move {
+        let future = Box::pin(async move {
             let len = 1024 * 1024;
             let vec = read_one(&mut socket, len).await?;
             match schema::v1::BlockRequest::decode(&vec[..]) {
                 Ok(r) => Ok(PolkadotProtocolEvent::Request(r, socket, handling_start)),
                 Err(e) => Err(ReadOneError::Io(io::Error::new(io::ErrorKind::Other, e)))
             }
-        };
-        future.boxed()
-        // Box::pin( async move{
-        // let bytes = read_one(&mut socket, MAX_MESSAGE_SIZE).await?;
-        // let message = String::from_utf8(bytes)?;
-            // println!("c upgrade_inbound {:?}",message);
-
-        // Ok(message)
-        // })
+        });
+        future
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct PolkadotProtocolMessage(String);
+pub struct PolkadotOutProtocol<B: Block>{
+    block_protobuf_request : Vec<u8>,
+    recv_request: BlockRequest<B>,
+};
 
-impl PolkadotProtocolMessage {
+impl PolkadotOutProtocol<B> {
     pub fn new(str: String) -> Self {
         PolkadotProtocolMessage(str)
     }
 }
 
-impl UpgradeInfo for PolkadotProtocolMessage {
+impl<B: Block> UpgradeInfo for PolkadotOutProtocol<B> {
     type Info = Bytes;
     type InfoIter = iter::Once<Self::Info>;
-
     fn protocol_info(&self) -> Self::InfoIter {
-        iter::once(Bytes::from(String::from("/dot/block-announces/1")))
+        let proto = String::from("/dot/block-announces/1");
+        let proto1 = String::from("/dot/sync/2");
+        iter::once(Bytes::from(proto1))
     }
 }
 
-impl<TSocket> OutboundUpgrade<TSocket> for PolkadotProtocolMessage
+impl<B: Block, TSocket> OutboundUpgrade<TSocket> for PolkadotOutProtocol<B>
 where
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
-    type Output = ();
-    type Error = io::Error;
-    //type Future = WriteOne<TSocket>;
+    type Output = PolkadotProtocolEvent<B,T>;
+    type Error = ReadOneError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
     fn upgrade_outbound(self, mut socket: TSocket, _: Self::Info) -> Self::Future {
         println!("upgrade_outbound");
         Box::pin( async move{
-            let bytes = self.0.into_bytes();
-            write_one(&mut socket, bytes).await?;
-            Ok(())
+            write_one(&mut socket, &self.block_protobuf_request)?;
+            let vec = read_one(&mut s, 16 * 1024 * 1024).await?;
+            schema::v1::BlockResponse::decode(&vec[..])
+                .map(|r| PolkadotProtocolEvent::Response(self.recv_request,r))
+                .map_err(|e| {
+                    ReadOneError::Io(io::Error::new(io::ErrorKind::Other, e))
+                }).boxed()
         })
     }
 }

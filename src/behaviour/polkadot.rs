@@ -10,8 +10,7 @@ use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 
 use futures::io::{AsyncRead, AsyncWrite};
 
-use super::super::protocol::net_protocol::{PolkadotProtocolEvent, PolkadotProtocolsHandler, PolkadotProtocolMessage};
-
+use super::super::protocol::net_protocol::{PolkadotProtocolEvent, PolkadotProtocolsHandler, PolkadotProtocolMessage, BlockRequest};
 
 // Network behaviour that sends a single welcome message to every node which connects
 pub struct PolkadotBehaviour {

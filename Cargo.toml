@@ -25,6 +25,11 @@ hex = "0.4.2"
 sc-network = { git = "https://github.com/paritytech/substrate", branch = "master" }
 wasm-timer = "0.2.5"
 prost = "0.6.1"
+futures-timer = "3.0.2"
+fnv = "1.0.7"
+smallvec = "0.6.10"
+codec = { package = "parity-scale-codec", version = "1.3.4", features = ["derive"] }
+bitflags = "1.2.0"
 
 [[bin]]
 name = "network_behav"
