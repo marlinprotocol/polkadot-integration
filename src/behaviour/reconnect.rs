@@ -35,7 +35,7 @@ pub struct PingBehaviour {
 #[derive(Debug)]
 struct PingInfo {
     info_expire: Option<Instant>,
-    endpoints: SmallVec<[ConnectedPoint; crate::MAX_CONNECTIONS_PER_PEER]>,
+    endpoints: SmallVec<[ConnectedPoint; 2]>,
     client_version: Option<String>,
     latest_ping: Option<Duration>,
 }
@@ -268,7 +268,7 @@ impl NetworkBehaviour for PingBehaviour {
                     match event {
                         IdentifyEvent::Received { peer_id, info, .. } => {
                             self.handle_identify_report(&peer_id, &info);
-                            let event = PingEvent::Identified { peer_id, info };
+                            let event = ioPingEvent::Identified { peer_id, info };
                             return Poll::Ready(NetworkBehaviourAction::GenerateEvent(event));
                         }
                         IdentifyEvent::Error { peer_id, error } =>

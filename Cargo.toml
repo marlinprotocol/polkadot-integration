@@ -1,5 +1,5 @@
 [package]
-name = "network_behav"
+name = "pkintegration"
 version = "0.1.0"
 authors = ["KotaHemanthIITD <4825491-KotaHemanthIITD@users.noreply.gitlab.com>"]
 edition = "2018"

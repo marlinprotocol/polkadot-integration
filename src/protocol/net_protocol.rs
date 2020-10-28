@@ -1,5 +1,5 @@
 use std::convert::From;
-use std::{io,time::Duration};
+use std::{io,time::Duration,marker::PhantomData};
 use std::iter;
 use std::string::FromUtf8Error;
 use std::pin::Pin;
@@ -85,24 +85,26 @@ pub struct gBlockResponse<Header, Hash, Extrinsic> {
 }
 
 pub type BlockResponse<B> = gBlockResponse<
-    <B as BlockT>::Header,
-    <B as BlockT>::Hash,
-    <B as BlockT>::Extrinsic,
+    <B as Block>::Header,
+    <B as Block>::Hash,
+    <B as Block>::Extrinsic,
 >;
 
 pub type BlockRequest<B> = gBlockRequest<
-    <B as BlockT>::Hash,
-    <<B as BlockT>::Header as HeaderT>::Number,
+    <B as Block>::Hash,
+    <<B as Block>::Header as HeaderT>::Number,
 >;
 
 #[derive(Debug, Clone)]
 pub struct PolkadotInProtocol<B> {
-    pub marker: Phantom<B>,
+    pub marker: PhantomData<B>,
 }
 
 impl<B: Block>  PolkadotInProtocol <B>{
-    pub fn new() -> PolkadotProtocolConfig {
-        PolkadotProtocolConfig {}
+    pub fn new() -> Self {
+        PolkadotInProtocol {
+            marker: PhantomData
+        }
     }
 }
 
@@ -144,11 +146,11 @@ where
 pub struct PolkadotOutProtocol<B: Block>{
     pub block_protobuf_request : Vec<u8>,
     pub recv_request: BlockRequest<B>,
-};
+}
 
-impl PolkadotOutProtocol<B> {
+impl<B: Block> PolkadotOutProtocol<B> {
     pub fn new(str: String) -> Self {
-        PolkadotProtocolMessage(str)
+        PolkadotOutProtocol(str)
     }
 }
 
@@ -166,14 +168,14 @@ impl<B: Block, TSocket> OutboundUpgrade<TSocket> for PolkadotOutProtocol<B>
 where
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
-    type Output = PolkadotProtocolEvent<B,T>;
+    type Output = PolkadotProtocolEvent<B,TSocket>;
     type Error = ReadOneError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
     fn upgrade_outbound(self, mut socket: TSocket, _: Self::Info) -> Self::Future {
         println!("upgrade_outbound");
         Box::pin( async move{
             write_one(&mut socket, &self.block_protobuf_request)?;
-            let vec = read_one(&mut s, 16 * 1024 * 1024).await?;
+            let vec = read_one(&mut socket, 16 * 1024 * 1024).await?;
             schema::v1::BlockResponse::decode(&vec[..])
                 .map(|r| PolkadotProtocolEvent::Response(self.recv_request,r))
                 .map_err(|e| {
@@ -186,7 +188,7 @@ where
 #[derive(Debug)]
 pub enum PolkadotProtocolEvent<B: Block, T> {
     Request(schema::v1::BlockRequest, T, Instant),
-    Response(message::BlockRequest<B>, schema::v1::BlockResponse),
+    Response(BlockRequest<B>, schema::v1::BlockResponse),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
@@ -267,6 +269,3 @@ pub(crate) fn build_protobuf_block_request<Hash: Encode, Number: Encode>(
     }
 }
 */
-
-type T = AsyncRead + AsyncWrite + Send + Unpin + 'static;
-pub type PolkadotProtocolsHandler = OneShotHandler<PolkadotProtocolConfig, PolkadotProtocolMessage, PolkadotProtocolEvent<B,T>>;
