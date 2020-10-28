@@ -1,5 +1,5 @@
 use std::convert::From;
-use std::io;
+use std::{io,time::Duration};
 use std::iter;
 use std::string::FromUtf8Error;
 use std::pin::Pin;
@@ -67,6 +67,29 @@ pub struct gBlockRequest<Hash, Number> {
     pub max: Option<u32>,
 }
 
+pub type Justification = Vec<u8>;
+
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
+pub struct BlockData<Header, Hash, Extrinsic> {
+    pub hash: Hash,
+    pub header: Option<Header>,
+    pub body: Option<Vec<Extrinsic>>,
+    pub receipt: Option<Vec<u8>>,
+    pub message_queue: Option<Vec<u8>>,
+    pub justification: Option<Justification>,
+}
+
+pub struct gBlockResponse<Header, Hash, Extrinsic> {
+    pub id: u64,
+    pub blocks: Vec<BlockData<Header, Hash, Extrinsic>>,
+}
+
+pub type BlockResponse<B> = gBlockResponse<
+    <B as BlockT>::Header,
+    <B as BlockT>::Hash,
+    <B as BlockT>::Extrinsic,
+>;
+
 pub type BlockRequest<B> = gBlockRequest<
     <B as BlockT>::Hash,
     <<B as BlockT>::Header as HeaderT>::Number,
@@ -74,7 +97,7 @@ pub type BlockRequest<B> = gBlockRequest<
 
 #[derive(Debug, Clone)]
 pub struct PolkadotInProtocol<B> {
-    marker: Phantom<B>,
+    pub marker: Phantom<B>,
 }
 
 impl<B: Block>  PolkadotInProtocol <B>{
@@ -119,8 +142,8 @@ where
 
 #[derive(Debug, Clone)]
 pub struct PolkadotOutProtocol<B: Block>{
-    block_protobuf_request : Vec<u8>,
-    recv_request: BlockRequest<B>,
+    pub block_protobuf_request : Vec<u8>,
+    pub recv_request: BlockRequest<B>,
 };
 
 impl PolkadotOutProtocol<B> {
@@ -164,6 +187,42 @@ where
 pub enum PolkadotProtocolEvent<B: Block, T> {
     Request(schema::v1::BlockRequest, T, Instant),
     Response(message::BlockRequest<B>, schema::v1::BlockResponse),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
+pub enum FromBlock<Hash, Number> {
+    Hash(Hash),
+    Number(Number),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Encode, Decode)]
+pub enum Direction {
+    Ascending = 0,
+    Descending = 1,
+}
+
+pub(crate) fn build_protobuf_block_request<Hash: Encode, Number: Encode>(
+    attributes: BlockAttributes,
+    from_block: FromBlock<Hash, Number>,
+    to_block: Option<Hash>,
+    direction: Direction,
+    max_blocks: Option<u32>,
+) -> schema::v1::BlockRequest {
+    schema::v1::BlockRequest {
+        fields: attributes.to_be_u32(),
+        from_block: match from_block {
+            FromBlock::Hash(h) =>
+                Some(schema::v1::block_request::FromBlock::Hash(h.encode())),
+            FromBlock::Number(n) =>
+                Some(schema::v1::block_request::FromBlock::Number(n.encode())),
+        },
+        to_block: to_block.map(|h| h.encode()).unwrap_or_default(),
+        direction: match direction {
+            Direction::Ascending => schema::v1::Direction::Ascending as i32,
+            Direction::Descending => schema::v1::Direction::Descending as i32,
+        },
+        max_blocks: max_blocks.unwrap_or(0),
+    }
 }
 
 // pub enum PolkadotProtocolEvent {
