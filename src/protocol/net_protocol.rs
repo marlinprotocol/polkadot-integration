@@ -14,7 +14,7 @@ use wasm_timer;
 
 use futures::io::{AsyncRead, AsyncWrite};
 use futures::future::BoxFuture;
-use sp_runtime::traits::Block;
+use sp_runtime::traits::{Block,Header};
 use std::time::Instant;
 // use sc_network::config::Client;
 use crate::schema;
@@ -70,7 +70,7 @@ pub struct gBlockRequest<Hash, Number> {
 pub type Justification = Vec<u8>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
-pub struct BlockData<Header, Hash, Extrinsic> {
+pub struct gBlockData<Header, Hash, Extrinsic> {
     pub hash: Hash,
     pub header: Option<Header>,
     pub body: Option<Vec<Extrinsic>>,
@@ -79,9 +79,16 @@ pub struct BlockData<Header, Hash, Extrinsic> {
     pub justification: Option<Justification>,
 }
 
+pub type BlockData<B> = gBlockData<
+    <B as Block>::Header,
+    <B as Block>::Hash,
+    <B as Block>::Extrinsic,
+>;
+
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 pub struct gBlockResponse<Header, Hash, Extrinsic> {
     pub id: u64,
-    pub blocks: Vec<BlockData<Header, Hash, Extrinsic>>,
+    pub blocks: Vec<gBlockData<Header, Hash, Extrinsic>>,
 }
 
 pub type BlockResponse<B> = gBlockResponse<
@@ -92,7 +99,7 @@ pub type BlockResponse<B> = gBlockResponse<
 
 pub type BlockRequest<B> = gBlockRequest<
     <B as Block>::Hash,
-    <<B as Block>::Header as HeaderT>::Number,
+    <<B as Block>::Header as Header>::Number,
 >;
 
 #[derive(Debug, Clone)]
@@ -147,13 +154,13 @@ pub struct PolkadotOutProtocol<B: Block>{
     pub block_protobuf_request : Vec<u8>,
     pub recv_request: BlockRequest<B>,
 }
-
+/*
 impl<B: Block> PolkadotOutProtocol<B> {
     pub fn new(str: String) -> Self {
         PolkadotOutProtocol(str)
     }
 }
-
+*/
 impl<B: Block> UpgradeInfo for PolkadotOutProtocol<B> {
     type Info = Bytes;
     type InfoIter = iter::Once<Self::Info>;
@@ -174,7 +181,7 @@ where
     fn upgrade_outbound(self, mut socket: TSocket, _: Self::Info) -> Self::Future {
         println!("upgrade_outbound");
         Box::pin( async move{
-            write_one(&mut socket, &self.block_protobuf_request)?;
+            write_one(&mut socket, &self.block_protobuf_request).await?;
             let vec = read_one(&mut socket, 16 * 1024 * 1024).await?;
             schema::v1::BlockResponse::decode(&vec[..])
                 .map(|r| PolkadotProtocolEvent::Response(self.recv_request,r))

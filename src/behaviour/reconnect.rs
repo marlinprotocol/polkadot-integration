@@ -242,7 +242,7 @@ impl NetworkBehaviour for PingBehaviour {
             match self.ping.poll(cx, params) {
                 Poll::Pending => break,
                 Poll::Ready(NetworkBehaviourAction::GenerateEvent(ev)) => {
-                    if let ioPingEvent { peer, result: Ok(PingSuccess::Ping { rtt }) } = ev {
+                    if let PingEvent { peer, result: Ok(PingSuccess::Ping { rtt }) } = ev {
                         self.handle_ping_report(&peer, rtt)
                     }
                 },

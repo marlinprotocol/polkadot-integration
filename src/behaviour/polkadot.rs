@@ -21,6 +21,7 @@ use libp2p::core::upgrade::write_one;
 use std::pin::Pin;
 use crate::schema;
 use prost::Message;
+use prost;
 
 #[derive(Debug)]
 pub enum ioEvent<B: Block> {
@@ -195,7 +196,7 @@ impl<B: Block> NetworkBehaviour for PolkadotBehaviour<B>
         let mut cfg = OneShotHandlerConfig::default();
         cfg.keep_alive_timeout = Duration::from_secs(15);
         cfg.outbound_substream_timeout = Duration::from_secs(40);
-        OneShotHandler::new(SubstreamProtocol::new(inProtocol,()),cfg);
+        OneShotHandler::new(SubstreamProtocol::new(inProtocol,()),cfg)
     }
 
 
@@ -309,7 +310,7 @@ impl<B: Block> NetworkBehaviour for PolkadotBehaviour<B>
         }
     }
 
-    fn poll(&mut self, cx : &mut Context, _: &mut impl PollParameters) -> Poll<NetworkBehaviourAction<PolkadotInProtocol<B>, ioEvent<B>>> {
+    fn poll(&mut self, cx : &mut Context, _: &mut impl PollParameters) -> Poll<NetworkBehaviourAction<PolkadotOutProtocol<B>, ioEvent<B>>> {
         if let Some(ev) = self.network_actions.pop_front() {
             return Poll::Ready(ev);
         }
