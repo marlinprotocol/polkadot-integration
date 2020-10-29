@@ -6,10 +6,13 @@ use bytes::Bytes;
 use futures::stream::Stream;
 use sp_consensus::block_import::BlockOrigin;
 use sp_consensus::import_queue::{IncomingBlock};
-use sp_runtime::{ConsensusEngineId,traits::{Block}};
+use sp_runtime::{ConsensusEngineId,traits::{Block,BlakeTwo256}};
 use libp2p::{NetworkBehaviour, InboundUpgradeExt, OutboundUpgradeExt};
-use libp2p::{identity,PeerId};
+use libp2p::{identity,PeerId,core::{PublicKey as PubKey}};
 use std::{collections::{VecDeque}};
+use sp_runtime::generic::{
+    Block as BlockT, Header as HeaderT
+};
 // https://github.com/libp2p/go-libp2p-pubsub/blob/master/gossipsub.go
 use libp2p::{gossipsub};
 
@@ -31,9 +34,10 @@ use futures::io::{AsyncRead, AsyncWrite};
 
 use void::Void;
 
-use network_behav::behaviour::reconnect::ReconnectBehaviour;
-use network_behav::behaviour::polkadot::PolkadotBehaviour;
-use network_behav::node_keys::identity_key::node_key;
+use pkintegration::behaviour::reconnect::ReconnectBehaviour;
+use pkintegration::behaviour::polkadot::PolkadotBehaviour;
+use pkintegration::node_keys::identity_key::node_key;
+use pkintegration::behaviour::kadelmia::DiscoveryBehaviour;
 
 use std::{error::Error};
 use libp2p::gossipsub::{Gossipsub, GossipsubMessage, MessageId, MessageAuthenticity};
@@ -45,10 +49,10 @@ use libp2p::identity::Keypair::Ed25519;
 use libp2p::identity::Keypair;
 
 #[derive(NetworkBehaviour)]
-struct MyBehaviour {
-    polkadot: PolkadotBehaviour,
-    // events: VecDeque<BehaviourOut<B>>,
-    //reconnect: ReconnectBehaviour
+struct MyBehaviour<B: Block> {
+    polkadot: PolkadotBehaviour<B>,
+    reconnect: ReconnectBehaviour,
+    // kad: DiscoveryBehaviour,
 }
 
 pub enum BehaviourOut<B: Block> {
@@ -61,31 +65,24 @@ pub enum BehaviourOut<B: Block> {
     },
 }
 
-impl MyBehaviour
-//where
-//    TSubstream: AsyncRead + AsyncWrite + Send + 'static
+impl<B: Block> MyBehaviour<B>
 {
-    fn new (welcome_message: String) -> Self {
+    fn new (welcome_message: String, key: PubKey) -> Self {
         MyBehaviour {
             polkadot: PolkadotBehaviour::new(welcome_message),
-            //reconnect: ReconnectBehaviour::new()
+            reconnect: ReconnectBehaviour::new(String::from("redmatter"),key),
         }
     }
 }
 
-impl NetworkBehaviourEventProcess<String> for MyBehaviour
-//where
-//    TSubstream: AsyncRead + AsyncWrite + Send + 'static
+impl<B: Block> NetworkBehaviourEventProcess<String> for MyBehaviour<B>
 {
     fn inject_event(&mut self, event: String) {
         println!("Welcome message received: {}", event)
-        // self.events.push_back(event)
     }
 }
 
-impl NetworkBehaviourEventProcess<Void> for MyBehaviour
-//where
-//    TSubstream: AsyncRead + AsyncWrite + Send + 'static
+impl<B: Block> NetworkBehaviourEventProcess<Void> for MyBehaviour<B>
 {
     fn inject_event(&mut self, _: Void) {}
 }
@@ -107,11 +104,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 		message.data.hash(&mut s);
 		MessageId::from(s.finish().to_string())
 	};
-	// let gossipsub_config = gossipsub::GossipsubConfigBuilder::new().
-	// 											  heartbeat_interval(Duration::from_secs(10))
-	// 											  .message_id_fn(message_id_fn).build();
-	// let mut gossipsub = gossipsub::Gossipsub::new(MessageAuthenticity::Signed(id_keys.clone()),gossipsub_config);
-    let behaviour = MyBehaviour::new("Hello!".to_owned());
+
+    pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
+    type Header = HeaderT<u32, BlakeTwo256>;
+    pub type Block = BlockT<Header, UncheckedExtrinsic>;
+
+    let behaviour = MyBehaviour::<Block>::new("Hello!".to_owned(),id_keys.public());
     let addr = format!("/ip4/127.0.0.1/tcp/8000").parse().unwrap();
     
     let mut listening = false;
@@ -157,9 +155,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 		let mut yamux_config = libp2p::yamux::Config::default();
 
-		// if use_yamux_flow_control {
 		yamux_config.set_window_update_mode(libp2p::yamux::WindowUpdateMode::OnRead);
-		// }
 
 		core::upgrade::SelectUpgrade::new(yamux_config, mplex_config)
 			.map_inbound(move |muxer| core::muxing::StreamMuxerBox::new(muxer))
@@ -173,7 +169,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.map_err(|err| io::Error::new(io::ErrorKind::Other, err))
 		.boxed();
 
-    let mut swarm = Swarm::new(transport, /*gossipsub*/behaviour, peer_id);
+    let mut swarm = Swarm::new(transport, behaviour, peer_id);
     Swarm::listen_on(&mut swarm, addr).unwrap();
 
 /*

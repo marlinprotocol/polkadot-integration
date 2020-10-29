@@ -25,7 +25,7 @@ pub fn interval(duration: Duration) -> impl Stream<Item = ()> + Unpin {
 const CACHE_EXPIRE: Duration = Duration::from_secs(10 * 60);
 const GARBAGE_COLLECT_INTERVAL: Duration = Duration::from_secs(2 * 60);
 
-pub struct PingBehaviour {
+pub struct ReconnectBehaviour {
     ping: Ping,
     identify: Identify,
     nodes_info: FnvHashMap<PeerId, PingInfo>,
@@ -53,7 +53,7 @@ impl PingInfo {
     }
 }
 
-impl PingBehaviour {
+impl ReconnectBehaviour {
     pub fn new(
         user_agent: String,
         local_public_key: PublicKey,
@@ -63,7 +63,7 @@ impl PingBehaviour {
             Identify::new(proto_version, user_agent, local_public_key)
         };
 
-        PingBehaviour {
+        ReconnectBehaviour {
             ping: Ping::new(PingConfig::new()),
             identify,
             nodes_info: FnvHashMap::default(),
@@ -118,7 +118,7 @@ pub enum ioPingEvent {
     },
 }
 
-impl NetworkBehaviour for PingBehaviour {
+impl NetworkBehaviour for ReconnectBehaviour {
     type ProtocolsHandler = IntoProtocolsHandlerSelect<
         <Ping as NetworkBehaviour>::ProtocolsHandler,
         <Identify as NetworkBehaviour>::ProtocolsHandler

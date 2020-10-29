@@ -19,6 +19,7 @@ use std::time::Instant;
 // use sc_network::config::Client;
 use crate::schema;
 use bitflags::bitflags;
+use prost::Message;
 
 const MAX_MESSAGE_SIZE: usize = 10240;  // bytes
 
@@ -187,7 +188,7 @@ where
                 .map(|r| PolkadotProtocolEvent::Response(self.recv_request,r))
                 .map_err(|e| {
                     ReadOneError::Io(io::Error::new(io::ErrorKind::Other, e))
-                }).boxed()
+                })
         })
     }
 }
