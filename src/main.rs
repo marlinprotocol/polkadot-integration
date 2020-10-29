@@ -34,8 +34,8 @@ use futures::io::{AsyncRead, AsyncWrite};
 
 use void::Void;
 
-use pkintegration::behaviour::reconnect::ReconnectBehaviour;
-use pkintegration::behaviour::polkadot::PolkadotBehaviour;
+use pkintegration::behaviour::reconnect::{ReconnectBehaviour, ioPingEvent};
+use pkintegration::behaviour::polkadot::{PolkadotBehaviour, ioEvent};
 use pkintegration::node_keys::identity_key::node_key;
 use pkintegration::behaviour::kadelmia::DiscoveryBehaviour;
 
@@ -75,16 +75,19 @@ impl<B: Block> MyBehaviour<B>
     }
 }
 
-impl<B: Block> NetworkBehaviourEventProcess<String> for MyBehaviour<B>
+impl<B: Block> NetworkBehaviourEventProcess<ioPingEvent> for MyBehaviour<B>
 {
-    fn inject_event(&mut self, event: String) {
-        println!("Welcome message received: {}", event)
+    fn inject_event(&mut self, event: ioPingEvent) {
+        println!("ioPingEvent");
     }
 }
 
-impl<B: Block> NetworkBehaviourEventProcess<Void> for MyBehaviour<B>
+impl<B: Block> NetworkBehaviourEventProcess<ioEvent<B>> for MyBehaviour<B>
 {
-    fn inject_event(&mut self, _: Void) {}
+    fn inject_event(&mut self, _: ioEvent<B>) {
+        println!("ioEvent");
+    }
+
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -184,14 +187,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 */
     task::block_on(future::poll_fn(move |cx: &mut Context<'_>| {
-
-        loop {
-            match stdin.try_poll_next_unpin(cx)? {
-                Poll::Ready(Some(line)) => println!("Event Received"),
-                Poll::Ready(None) => println!("Stdin closed"),
-                Poll::Pending => break
-            }
-        }
 
         loop {
 
