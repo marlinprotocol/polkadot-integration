@@ -37,7 +37,7 @@ use void::Void;
 use pkintegration::behaviour::reconnect::{ReconnectBehaviour, ioPingEvent};
 use pkintegration::behaviour::polkadot::{PolkadotBehaviour, ioEvent};
 use pkintegration::node_keys::identity_key::node_key;
-use pkintegration::behaviour::kadelmia::DiscoveryBehaviour;
+use pkintegration::behaviour::kadelmia::{DiscoveryBehaviour,DiscoveryConfig,ProtocolId,DiscoveryOut};
 
 use std::{error::Error};
 use libp2p::gossipsub::{Gossipsub, GossipsubMessage, MessageId, MessageAuthenticity};
@@ -52,7 +52,7 @@ use libp2p::identity::Keypair;
 struct MyBehaviour<B: Block> {
     polkadot: PolkadotBehaviour<B>,
     reconnect: ReconnectBehaviour,
-    // kad: DiscoveryBehaviour,
+    kad: DiscoveryBehaviour,
 }
 
 pub enum BehaviourOut<B: Block> {
@@ -68,9 +68,12 @@ pub enum BehaviourOut<B: Block> {
 impl<B: Block> MyBehaviour<B>
 {
     fn new (welcome_message: String, key: PubKey) -> Self {
+        let mut disc_config = DiscoveryConfig::new(key.clone());
+        disc_config.add_protocol(ProtocolId::from("/dot"));
         MyBehaviour {
             polkadot: PolkadotBehaviour::new(welcome_message),
             reconnect: ReconnectBehaviour::new(String::from("redmatter"),key),
+            kad: disc_config.finish(),
         }
     }
 }
@@ -88,6 +91,13 @@ impl<B: Block> NetworkBehaviourEventProcess<ioEvent<B>> for MyBehaviour<B>
         println!("ioEvent");
     }
 
+}
+
+impl<B: Block> NetworkBehaviourEventProcess<DiscoveryOut> for MyBehaviour<B>
+{
+    fn inject_event(&mut self, _:DiscoveryOut){
+        println!("High level");
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
