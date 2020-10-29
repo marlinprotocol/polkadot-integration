@@ -21,6 +21,8 @@ use crate::schema;
 use bitflags::bitflags;
 use prost::Message;
 
+use prost::Message;
+
 const MAX_MESSAGE_SIZE: usize = 10240;  // bytes
 
 bitflags! {
