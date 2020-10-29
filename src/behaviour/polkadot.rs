@@ -22,6 +22,9 @@ use std::pin::Pin;
 use crate::schema;
 use prost::Message;
 use prost;
+use futures::FutureExt;
+use futures::Future;
+use futures::StreamExt;
 
 #[derive(Debug)]
 pub enum ioEvent<B: Block> {

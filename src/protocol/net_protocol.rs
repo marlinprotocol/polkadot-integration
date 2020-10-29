@@ -20,6 +20,8 @@ use std::time::Instant;
 use crate::schema;
 use bitflags::bitflags;
 
+use prost::Message;
+
 const MAX_MESSAGE_SIZE: usize = 10240;  // bytes
 
 bitflags! {
