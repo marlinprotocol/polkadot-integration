@@ -1,3 +1,3 @@
 pub mod reconnect;
 pub mod polkadot;
-// pub mod kadelmia;
+pub mod kadelmia;

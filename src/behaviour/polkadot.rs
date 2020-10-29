@@ -15,10 +15,6 @@ use futures::io::{AsyncRead, AsyncWrite};
 use std::time::Instant;
 use futures_timer::Delay;
 
-use futures::FutureExt;
-use futures::Future;
-use futures::StreamExt;
-
 use super::super::protocol::net_protocol::{PolkadotProtocolEvent, PolkadotOutProtocol, BlockRequest, BlockResponse, BlockData, BlockAttributes};
 use crate::protocol::net_protocol::{PolkadotInProtocol, build_protobuf_block_request};
 use libp2p::core::upgrade::write_one;
