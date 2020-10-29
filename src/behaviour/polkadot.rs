@@ -239,14 +239,14 @@ impl<B: Block> NetworkBehaviour for PolkadotBehaviour<B>
                                 peer, e
                             )
                         } else {
-                            self.outgoing.push(async move {
+                            self.outgoing.push((async move {
                                 if let Err(e) = write_one(&mut stream, data).await {
                                     println!("Error writing block response: {}",
                                              e
                                     );
                                 }
                                 (peer, handling_start.elapsed())
-                            }.boxed());
+                            }).boxed());
                         }
                     }
                     Err(e) => println!(

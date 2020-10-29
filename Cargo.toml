@@ -9,9 +9,8 @@ edition = "2018"
 prost-build = "0.6.1"
 
 [dependencies]
-futures = "0.3.1"
+futures = "0.3.4"
 libp2p = "0.28.1"
-#libp2p-core = "0.28.1"
 tokio = "0.1"
 tokio-io = "0.1"
 void = "1.0"
