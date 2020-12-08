@@ -57,4 +57,3 @@ message BlockData {
 	// justification.
 	bool is_empty_justification = 7; // optional, false if absent
 }
-

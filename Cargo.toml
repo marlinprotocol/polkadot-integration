@@ -1,36 +1,24 @@
 [package]
-name = "pkintegration"
+name = "gateway_dot"
 version = "0.1.0"
-authors = ["KotaHemanthIITD <4825491-KotaHemanthIITD@users.noreply.gitlab.com>"]
+authors = ["Roshan Raghupathy"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[build-dependencies]
-prost-build = "0.6.1"
+build = "build.rs"
 
 [dependencies]
 futures = "0.3.4"
 libp2p = "0.28.1"
-tokio = "0.1"
-tokio-io = "0.1"
-void = "1.0"
-log = "0.4.11"
-async-std = "1.6.2"
-bytes = "0.5.0"
-sp-consensus = "0.8.0"
+tokio = { version = "0.2", features = ["full"] }
 sp-runtime = "2.0.0"
-rand = "0.7.3"
 hex = "0.4.2"
-sc-network = { git = "https://github.com/paritytech/substrate", branch = "master" }
-wasm-timer = "0.2.5"
-prost = "0.6.1"
-futures-timer = "3.0.2"
-fnv = "1.0.7"
-smallvec = "0.6.10"
 codec = { package = "parity-scale-codec", version = "1.3.4", features = ["derive"] }
-bitflags = "1.2.0"
+prost = "0.6"
+bytes = "0.4"
+
+[build-dependencies]
+prost-build = { version = "0.6" }
 
 [[bin]]
-name = "network_behav"
+name = "gateway_dot"
 build = "build.rs"
 path = "src/main.rs"

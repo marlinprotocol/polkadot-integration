@@ -1,4 +1,5 @@
-pub mod behaviour;
-pub mod protocol;
 pub mod node_keys;
-mod schema;
+
+pub mod api {
+    include!(concat!(env!("OUT_DIR"), "/api.v1.rs"));
+}
