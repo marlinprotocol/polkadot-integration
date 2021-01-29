@@ -349,7 +349,7 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 											size = expected + 1;
 											sst.write(&buf[0..size]).await.unwrap();
 											
-											// // Block requester
+											// Block requester
 											let mut brtx = spawn_block_requester(smux.clone());
 
 											loop {
