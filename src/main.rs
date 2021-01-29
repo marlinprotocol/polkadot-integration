@@ -348,10 +348,11 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 											}
 											size = expected + 1;
 											sst.write(&buf[0..size]).await.unwrap();
+											
+											// // Block requester
+											let mut brtx = spawn_block_requester(smux.clone());
 
 											loop {
-												// // Block requester
-												// let mut brtx = spawn_block_requester(smux.clone());
 
 												// println!("Block announce message");
 												// task::sleep(Duration::from_secs(5)).await;
@@ -378,7 +379,7 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 												match announce {
 													Ok(announce) => {
 														println!("New block announce: {}", announce.header.number);
-														// brtx.send(announce).await.unwrap();
+														brtx.send(announce).await.unwrap();
 													},
 													Err(err) => println!("Block announce error: {}", err.what()),
 												};
