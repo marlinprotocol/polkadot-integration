@@ -370,10 +370,12 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 												let mut idx: usize = 0;
 												let mut len: usize = 0;
 												while buf[idx] > 128 {
-													len = len*128 + buf[idx] as usize;
+													len |= (buf[idx] as usize & 127) << (idx * 7);
+													//len = len*128 + buf[idx] as usize;
 													idx += 1;
 												}
-												len = len*128 + buf[idx] as usize;
+												len |= (buf[idx] as usize & 127) << (idx * 7);
+												//println!("decoded block announce length: {}", len);
 												idx += 1;
 												let announce = BlockAnnounce::decode(&mut &buf[idx..idx+len]);
 												match announce {
