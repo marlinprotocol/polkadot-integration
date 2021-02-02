@@ -195,9 +195,17 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>) -> tokio::sync::mpsc::Sender
 			block_req.write_all(&[buf.len() as u8]).await.unwrap();
 			block_req.write_all(&mut buf[..]).await.unwrap();
 			// block_req.shutdown().await.unwrap();
-
-			let size = block_req.read(&mut buf[..]).await.unwrap();
-			println!("Block message: {:?}", &buf[0..size]);
+			let mut count  = 0;
+			loop{
+				let size = block_req.read(&mut buf[..]).await.unwrap();
+				if size == 0 {
+					println!("reading complete");
+					break;
+				}
+				count  = count + 1;
+				println!("Block message {}: {:?}",count, &buf[0..size]);
+			}
+			
 
 			// if let Err(_) = stream.write_u64(msg.len() as u64).await {
 			// 	backoff.run().await;
@@ -362,7 +370,7 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 													// println!("Block announce rekt");
 													break
 												}
-
+												println!("send announcement size {}", size);
 												tx.send(buf[0..size].iter().cloned().collect()).await.unwrap();
 												sst.write(&[0]).await.unwrap();
 
