@@ -29,6 +29,23 @@ use gateway_dot::api;
 use prost::Message;
 use libp2p::bytes::BufMut;
 
+use structopt::StructOpt;
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "gateway_dot")]
+struct Opt {
+    
+    #[structopt(short, long)]
+    listen_port: String,
+
+    
+    #[structopt(short, long)]
+    bridge_address: String,
+
+    
+    #[structopt(short, long)]
+    keystore_path: Option<String>
+}
 
 /// Block state in the chain.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -143,7 +160,7 @@ fn spawn_bridge_task(mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>) {
 }
 
 
-fn spawn_block_requester(smux: Arc<StreamMuxerBox>, tx: tokio::sync::mpsc::Sender<Vec<u8>>) -> tokio::sync::mpsc::Sender<BlockAnnounce>
+fn spawn_block_requester(smux: Arc<StreamMuxerBox>,mut tx_bridge: tokio::sync::mpsc::Sender<Vec<u8>>) -> tokio::sync::mpsc::Sender<BlockAnnounce>
 {
 	// MPSC queue for block request stream
 	let (tx, mut rx) = tokio::sync::mpsc::channel::<BlockAnnounce>(100);
@@ -160,10 +177,11 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>, tx: tokio::sync::mpsc::Sende
 			println!("block req outbound stream");
 
 			block_req.write_all(b"\x13/multistream/1.0.0\n").await.unwrap();
+			let mut size = block_req.read(&mut buf[..]).await.unwrap();
 			block_req.write_all(b"\x0c/dot/sync/2\n").await.unwrap();
+			size += block_req.read(&mut buf[size..]).await.unwrap();
 
-			let size = block_req.read(&mut buf[..]).await.unwrap();
-			// println!("Proto message: {:?}", &buf[0..size]);
+			println!("Proto message: {:?}", &buf[..size]);
 			assert!(size == 33, "block req handshake failure");
 
 			let len: usize = buf[20].into();
@@ -189,28 +207,31 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>, tx: tokio::sync::mpsc::Sende
 			println!("Buf: {}, {}: {:?}", br.encoded_len(), buf.len(), &buf[..]);
 			block_req.write_all(&[buf.len() as u8]).await.unwrap();
 			block_req.write_all(&mut buf[..]).await.unwrap();
-			// block_req.shutdown().await.unwrap();
-			let mut count  = 0;
+			
+			let mut bufblock = Box::new([0u8; 1000000]);
+			let mut idx: usize = 0;
 			loop{
-				let size = block_req.read(&mut buf[..]).await.unwrap();
+				let size = block_req.read(&mut bufblock[idx..]).await.unwrap();
 				if size == 0 {
 					println!("reading complete");
 					break;
 				}
-				count  = count + 1;
-				println!("Block message {}: {:?}",count, &buf[0..size]);
+				println!("Block message {:?}", &bufblock[idx..idx+size]);
+				idx += size;
 			}
-			
-
-			// if let Err(_) = stream.write_u64(msg.len() as u64).await {
-			// 	backoff.run().await;
-			// 	break;
-			// }
-
-			// if let Err(_) = stream.write_all(&msg).await {
-			// 	backoff.run().await;
-			// 	break;
-			// }
+			println!("block size {}", idx);
+			let mut len: usize = 0;
+			idx = 0;
+			while bufblock[idx] >= 128 {
+				len |= (bufblock[idx] as usize & 127) << (idx * 7);
+				idx += 1;
+			}
+			len |= (bufblock[idx] as usize & 127) << (idx * 7);
+			println!("decoded block length: {}", len);
+			idx += 1;
+			let mut msg = vec![1u8];
+			msg.extend_from_slice(&bufblock[..idx+len]);
+			tx_bridge.send(msg).await.unwrap();
 		}
 	});
 
@@ -218,6 +239,8 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>, tx: tokio::sync::mpsc::Sende
 }
 
 async fn lin_main() -> Result<(), Box<dyn Error>> {
+	let opt = Opt::from_args();
+	println!("{:#?}", opt);
 	// Private and public keys configuration.
 	let key_path = PathBuf::from("gateway_dot.key");
 	let keys = NodeKey { file: key_path };
@@ -376,7 +399,7 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 
                                                     let mut idx: usize = 0;
                                                     let mut len: usize = 0;
-                                                    while buf[offset+idx] > 128 {
+                                                    while buf[offset+idx] >= 128 {
                                                         len |= (buf[offset+idx] as usize & 127) << (idx * 7);
                                                         //len = len*128 + buf[idx] as usize;
                                                         idx += 1;
