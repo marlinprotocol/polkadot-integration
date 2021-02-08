@@ -29,6 +29,21 @@ use gateway_dot::api;
 use prost::Message;
 use libp2p::bytes::BufMut;
 
+use structopt::StructOpt;
+
+#[derive(StructOpt, Debug, Clone)]
+#[structopt(name = "gateway_dot")]
+struct Opt {
+
+    #[structopt(short, long)]
+    listen_port: Option<String>,
+
+    #[structopt(short, long)]
+    bridge_address: Option<String>,
+
+    #[structopt(short, long)]
+    keystore_path: Option<String>
+}
 
 /// Block state in the chain.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -97,10 +112,8 @@ impl Decode for BlockAnnounce {
 	}
 }
 
-fn spawn_bridge_task() -> tokio::sync::mpsc::Sender<Vec<u8>> {
-	// MPSC queue for bridge connection
-	let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
-
+fn spawn_bridge_task(mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>) {
+	let opt = Opt::from_args();
 	// Bridge connection
 	task::spawn(async move {
 		struct Backoff {
@@ -124,8 +137,9 @@ fn spawn_bridge_task() -> tokio::sync::mpsc::Sender<Vec<u8>> {
 		let mut backoff = Backoff::new();
 
 		loop {
+			let opt = opt.clone();
 			println!("Connecting to bridge");
-			if let Ok(mut stream) = tokio::net::TcpStream::connect("127.0.0.1:15003").await {
+			if let Ok(mut stream) = tokio::net::TcpStream::connect(opt.bridge_address.unwrap_or("127.0.0.1:20901".to_string())).await {
 				loop {
 					let msg = rx.recv().await.unwrap();
 					if let Err(_) = stream.write_u64(msg.len() as u64).await {
@@ -143,12 +157,10 @@ fn spawn_bridge_task() -> tokio::sync::mpsc::Sender<Vec<u8>> {
 			}
 		}
 	});
-
-	return tx;
 }
 
 
-fn spawn_block_requester(smux: Arc<StreamMuxerBox>) -> tokio::sync::mpsc::Sender<BlockAnnounce>
+fn spawn_block_requester(smux: Arc<StreamMuxerBox>,mut tx_bridge: tokio::sync::mpsc::Sender<Vec<u8>>) -> tokio::sync::mpsc::Sender<BlockAnnounce>
 {
 	// MPSC queue for block request stream
 	let (tx, mut rx) = tokio::sync::mpsc::channel::<BlockAnnounce>(100);
@@ -157,24 +169,25 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>) -> tokio::sync::mpsc::Sender
 			let smux = smux.clone();
 			let mut buf = Box::new([0u8; 1000]);
 
-			println!("block req outbound start");
+			// println!("block req outbound start");
 
 			// Open a block request stream
 			let mut block_req = outbound_from_ref_and_wrap(smux).await.unwrap();
 
-			println!("block req outbound stream");
+			// println!("block req outbound stream");
 
 			block_req.write_all(b"\x13/multistream/1.0.0\n").await.unwrap();
+			let mut size = block_req.read(&mut buf[..]).await.unwrap();
 			block_req.write_all(b"\x0c/dot/sync/2\n").await.unwrap();
+			size += block_req.read(&mut buf[size..]).await.unwrap();
 
-			let size = block_req.read(&mut buf[..]).await.unwrap();
-			// println!("Proto message: {:?}", &buf[0..size]);
+			// println!("Proto message: {:?}", &buf[..size]);
 			assert!(size == 33, "block req handshake failure");
 
 			let len: usize = buf[20].into();
 			let proto = std::str::from_utf8(&buf[21..21+len-1]).unwrap();
 
-			println!("proto: {}", proto);
+			// println!("proto: {}", proto);
 
 			let ann = rx.recv().await.unwrap();
 
@@ -191,23 +204,34 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>) -> tokio::sync::mpsc::Sender
 			let mut buf = vec![];
 			br.encode(&mut buf).unwrap();
 
-			println!("Buf: {}, {}: {:?}", br.encoded_len(), buf.len(), &buf[..]);
+			// println!("Buf: {}, {}: {:?}", br.encoded_len(), buf.len(), &buf[..]);
 			block_req.write_all(&[buf.len() as u8]).await.unwrap();
 			block_req.write_all(&mut buf[..]).await.unwrap();
-			// block_req.shutdown().await.unwrap();
 
-			let size = block_req.read(&mut buf[..]).await.unwrap();
-			println!("Block message: {:?}", &buf[0..size]);
-
-			// if let Err(_) = stream.write_u64(msg.len() as u64).await {
-			// 	backoff.run().await;
-			// 	break;
-			// }
-
-			// if let Err(_) = stream.write_all(&msg).await {
-			// 	backoff.run().await;
-			// 	break;
-			// }
+			let mut bufblock = Box::new([0u8; 1000000]);
+			let mut idx: usize = 0;
+			loop{
+				let size = block_req.read(&mut bufblock[idx..]).await.unwrap();
+				if size == 0 {
+					// println!("reading complete");
+					break;
+				}
+				// println!("Block message {:?}", &bufblock[idx..idx+size]);
+				idx += size;
+			}
+			// println!("block size {}", idx);
+			let mut len: usize = 0;
+			idx = 0;
+			while bufblock[idx] >= 128 {
+				len |= (bufblock[idx] as usize & 127) << (idx * 7);
+				idx += 1;
+			}
+			len |= (bufblock[idx] as usize & 127) << (idx * 7);
+			// println!("decoded block length: {}", len);
+			idx += 1;
+			let mut msg = vec![1u8];
+			msg.extend_from_slice(&bufblock[..idx+len]);
+			tx_bridge.send(msg).await.unwrap();
 		}
 	});
 
@@ -215,6 +239,8 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>) -> tokio::sync::mpsc::Sender
 }
 
 async fn lin_main() -> Result<(), Box<dyn Error>> {
+	let opt = Opt::from_args();
+	// println!("{:#?}", opt);
 	// Private and public keys configuration.
 	let key_path = PathBuf::from("gateway_dot.key");
 	let keys = NodeKey { file: key_path };
@@ -278,10 +304,12 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 		.map_err(|err| io::Error::new(io::ErrorKind::Other, err))
 		.boxed();
 
-	let mut listener = transport.listen_on("/ip4/127.0.0.1/tcp/8000".parse()?)?;
+	let mut listener = transport.listen_on(("/ip4/127.0.0.1/tcp/".to_owned()+&opt.listen_port.unwrap_or("20900".to_string())).parse()?)?;
 
 	task::spawn(async move {
-		let tx = spawn_bridge_task();
+        // MPSC queue for bridge connection
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+		spawn_bridge_task(rx);
 
 		loop {
 			let le = listener.next().await.unwrap().unwrap();
@@ -349,39 +377,55 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 											size = expected + 1;
 											sst.write(&buf[0..size]).await.unwrap();
 
-											loop {
-												// // Block requester
-												// let mut brtx = spawn_block_requester(smux.clone());
+											// Block requester
+											let mut brtx = spawn_block_requester(smux.clone(), tx.clone());
 
-												// println!("Block announce message");
-												// task::sleep(Duration::from_secs(5)).await;
+											loop {
 												let size = sst.read(&mut buf[..]).await.unwrap();
 												// println!("Block announce message: {} bytes: {:?}", size, &buf[0..size]);
 												if size == 0 {
 													// println!("Block announce rekt");
 													break
 												}
-
-												tx.send(buf[0..size].iter().cloned().collect()).await.unwrap();
 												sst.write(&[0]).await.unwrap();
 
-												// Decode announcement
-												let mut idx: usize = 0;
-												let mut len: usize = 0;
-												while buf[idx] > 128 {
-													len = len*128 + buf[idx] as usize;
-													idx += 1;
-												}
-												len = len*128 + buf[idx] as usize;
-												idx += 1;
-												let announce = BlockAnnounce::decode(&mut &buf[idx..idx+len]);
-												match announce {
-													Ok(announce) => {
-														println!("New block announce: {}", announce.header.number);
-														// brtx.send(announce).await.unwrap();
-													},
-													Err(err) => println!("Block announce error: {}", err.what()),
-												};
+												// Decode announcements
+
+                                                let mut offset: usize = 0;
+                                                loop {
+                                                    if offset + 2 > size {
+                                                        break;
+                                                    }
+
+                                                    let mut idx: usize = 0;
+                                                    let mut len: usize = 0;
+                                                    while buf[offset+idx] >= 128 {
+                                                        len |= (buf[offset+idx] as usize & 127) << (idx * 7);
+                                                        //len = len*128 + buf[idx] as usize;
+                                                        idx += 1;
+                                                    }
+                                                    len |= (buf[offset+idx] as usize & 127) << (idx * 7);
+                                                    //println!("decoded block announce length: {}", len);
+                                                    idx += 1;
+
+                                                    if offset+idx+len > size {
+                                                        break;
+                                                    }
+
+                                                    let announce = BlockAnnounce::decode(&mut &buf[offset+idx..offset+idx+len]);
+                                                    match announce {
+                                                        Ok(announce) => {
+                                                            println!("New block announce: {}", announce.header.number);
+                                                            let mut msg = vec![0u8];
+                                                            msg.extend_from_slice(&buf[offset..offset+idx+len]);
+                                                            tx.send(msg).await.unwrap();
+                                                            brtx.send(announce).await.unwrap();
+                                                        },
+                                                        Err(err) => println!("Block announce error: {}", err.what()),
+                                                    };
+
+                                                    offset += idx+len;
+                                                }
 											}
 										} else if proto == "ls" {
 											loop {
