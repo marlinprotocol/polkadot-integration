@@ -31,18 +31,16 @@ use libp2p::bytes::BufMut;
 
 use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
+#[derive(StructOpt, Debug, Clone)]
 #[structopt(name = "gateway_dot")]
 struct Opt {
-    
-    #[structopt(short, long)]
-    listen_port: String,
 
-    
     #[structopt(short, long)]
-    bridge_address: String,
+    listen_port: Option<String>,
 
-    
+    #[structopt(short, long)]
+    bridge_address: Option<String>,
+
     #[structopt(short, long)]
     keystore_path: Option<String>
 }
@@ -115,6 +113,7 @@ impl Decode for BlockAnnounce {
 }
 
 fn spawn_bridge_task(mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>) {
+	let opt = Opt::from_args();
 	// Bridge connection
 	task::spawn(async move {
 		struct Backoff {
@@ -138,8 +137,9 @@ fn spawn_bridge_task(mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>) {
 		let mut backoff = Backoff::new();
 
 		loop {
+			let opt = opt.clone();
 			println!("Connecting to bridge");
-			if let Ok(mut stream) = tokio::net::TcpStream::connect("127.0.0.1:15003").await {
+			if let Ok(mut stream) = tokio::net::TcpStream::connect(opt.bridge_address.unwrap_or("127.0.0.1:20901".to_string())).await {
 				loop {
 					let msg = rx.recv().await.unwrap();
 					if let Err(_) = stream.write_u64(msg.len() as u64).await {
@@ -169,25 +169,25 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>,mut tx_bridge: tokio::sync::m
 			let smux = smux.clone();
 			let mut buf = Box::new([0u8; 1000]);
 
-			println!("block req outbound start");
+			// println!("block req outbound start");
 
 			// Open a block request stream
 			let mut block_req = outbound_from_ref_and_wrap(smux).await.unwrap();
 
-			println!("block req outbound stream");
+			// println!("block req outbound stream");
 
 			block_req.write_all(b"\x13/multistream/1.0.0\n").await.unwrap();
 			let mut size = block_req.read(&mut buf[..]).await.unwrap();
 			block_req.write_all(b"\x0c/dot/sync/2\n").await.unwrap();
 			size += block_req.read(&mut buf[size..]).await.unwrap();
 
-			println!("Proto message: {:?}", &buf[..size]);
+			// println!("Proto message: {:?}", &buf[..size]);
 			assert!(size == 33, "block req handshake failure");
 
 			let len: usize = buf[20].into();
 			let proto = std::str::from_utf8(&buf[21..21+len-1]).unwrap();
 
-			println!("proto: {}", proto);
+			// println!("proto: {}", proto);
 
 			let ann = rx.recv().await.unwrap();
 
@@ -204,22 +204,22 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>,mut tx_bridge: tokio::sync::m
 			let mut buf = vec![];
 			br.encode(&mut buf).unwrap();
 
-			println!("Buf: {}, {}: {:?}", br.encoded_len(), buf.len(), &buf[..]);
+			// println!("Buf: {}, {}: {:?}", br.encoded_len(), buf.len(), &buf[..]);
 			block_req.write_all(&[buf.len() as u8]).await.unwrap();
 			block_req.write_all(&mut buf[..]).await.unwrap();
-			
+
 			let mut bufblock = Box::new([0u8; 1000000]);
 			let mut idx: usize = 0;
 			loop{
 				let size = block_req.read(&mut bufblock[idx..]).await.unwrap();
 				if size == 0 {
-					println!("reading complete");
+					// println!("reading complete");
 					break;
 				}
-				println!("Block message {:?}", &bufblock[idx..idx+size]);
+				// println!("Block message {:?}", &bufblock[idx..idx+size]);
 				idx += size;
 			}
-			println!("block size {}", idx);
+			// println!("block size {}", idx);
 			let mut len: usize = 0;
 			idx = 0;
 			while bufblock[idx] >= 128 {
@@ -227,7 +227,7 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>,mut tx_bridge: tokio::sync::m
 				idx += 1;
 			}
 			len |= (bufblock[idx] as usize & 127) << (idx * 7);
-			println!("decoded block length: {}", len);
+			// println!("decoded block length: {}", len);
 			idx += 1;
 			let mut msg = vec![1u8];
 			msg.extend_from_slice(&bufblock[..idx+len]);
@@ -240,7 +240,7 @@ fn spawn_block_requester(smux: Arc<StreamMuxerBox>,mut tx_bridge: tokio::sync::m
 
 async fn lin_main() -> Result<(), Box<dyn Error>> {
 	let opt = Opt::from_args();
-	println!("{:#?}", opt);
+	// println!("{:#?}", opt);
 	// Private and public keys configuration.
 	let key_path = PathBuf::from("gateway_dot.key");
 	let keys = NodeKey { file: key_path };
@@ -304,7 +304,7 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 		.map_err(|err| io::Error::new(io::ErrorKind::Other, err))
 		.boxed();
 
-	let mut listener = transport.listen_on("/ip4/127.0.0.1/tcp/8000".parse()?)?;
+	let mut listener = transport.listen_on(("/ip4/127.0.0.1/tcp/".to_owned()+&opt.listen_port.unwrap_or("20900".to_string())).parse()?)?;
 
 	task::spawn(async move {
         // MPSC queue for bridge connection
