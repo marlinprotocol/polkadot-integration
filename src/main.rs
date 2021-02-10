@@ -36,10 +36,10 @@ use structopt::StructOpt;
 struct Opt {
 
     #[structopt(short, long)]
-    listen_port: Option<String>,
+    listen_addr: Option<String>,
 
     #[structopt(short, long)]
-    bridge_address: Option<String>,
+    bridge_addr: Option<String>,
 
     #[structopt(short, long)]
     keystore_path: Option<String>
@@ -139,7 +139,7 @@ fn spawn_bridge_task(mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>) {
 		loop {
 			let opt = opt.clone();
 			println!("Connecting to bridge");
-			if let Ok(mut stream) = tokio::net::TcpStream::connect(opt.bridge_address.unwrap_or("127.0.0.1:20901".to_string())).await {
+			if let Ok(mut stream) = tokio::net::TcpStream::connect(opt.bridge_addr.unwrap_or("127.0.0.1:20901".to_string())).await {
 				loop {
 					let msg = rx.recv().await.unwrap();
 					if let Err(_) = stream.write_u64(msg.len() as u64).await {
@@ -304,7 +304,7 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 		.map_err(|err| io::Error::new(io::ErrorKind::Other, err))
 		.boxed();
 
-	let mut listener = transport.listen_on(("/ip4/127.0.0.1/tcp/".to_owned()+&opt.listen_port.unwrap_or("20900".to_string())).parse()?)?;
+	let mut listener = transport.listen_on(opt.listen_addr.unwrap_or("/ip4/127.0.0.1/tcp/20900".to_string()).parse()?)?;
 
 	task::spawn(async move {
         // MPSC queue for bridge connection
