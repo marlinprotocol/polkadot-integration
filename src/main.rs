@@ -304,7 +304,7 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 		.map_err(|err| io::Error::new(io::ErrorKind::Other, err))
 		.boxed();
 
-	let mut listener = transport.listen_on(opt.listen_addr.unwrap_or("/ip4/127.0.0.1/tcp/20900".to_string()).parse()?)?;
+	let mut listener = transport.listen_on(opt.listen_addr.unwrap_or("/ip4/0.0.0.0/tcp/20900".to_string()).parse()?)?;
 
 	task::spawn(async move {
         // MPSC queue for bridge connection
