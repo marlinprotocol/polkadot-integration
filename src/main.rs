@@ -494,7 +494,7 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 											// let size = sst.read(&mut buf[..]).await.unwrap();
 											// println!("nitin 2: {:?}", &buf[0..size]);
 											// //sst.write(&buf[0..size]).await.unwrap();
-											//let mut buf_local = Box::new([0u8; 1000]);
+	
 											let mut neighbour_notif = outbound_from_ref_and_wrap(smux.clone()).await.unwrap();
 
 											neighbour_notif.write_all(b"\x13/multistream/1.0.0\n").await.unwrap();
