@@ -491,21 +491,33 @@ async fn lin_main() -> Result<(), Box<dyn Error>> {
 											sst.write(&buf[0..size]).await.unwrap();
 
 											// Handshake
-											let size = sst.read(&mut buf[..]).await.unwrap();
-											sst.write(&buf[0..size]).await.unwrap();
+											// let size = sst.read(&mut buf[..]).await.unwrap();
+											// println!("nitin 2: {:?}", &buf[0..size]);
+											// //sst.write(&buf[0..size]).await.unwrap();
+	
+											let mut neighbour_notif = outbound_from_ref_and_wrap(smux.clone()).await.unwrap();
+
+											neighbour_notif.write_all(b"\x13/multistream/1.0.0\n").await.unwrap();
+											let mut size = neighbour_notif.read(&mut buf[..]).await.unwrap();
+											neighbour_notif.write_all(b"\x16/paritytech/grandpa/1\n").await.unwrap();
+											size += neighbour_notif.read(&mut buf[size..]).await.unwrap();
+											assert!(size == 43, "neighbour notification handshake failure");
 
 											loop {
-												// println!("Grandpa message: {:?}", &buf[0..size]);
+												println!("Grandpa message: {:?}", &buf[0..size]);
 												// println!("Grandpa message");
 												// task::sleep(Duration::from_secs(5)).await;
 												let size = sst.read(&mut buf[..]).await.unwrap();
-												// println!("Grandpa message: {:?}", &buf[0..size]);
+												//println!("Grandpa message: {:?}", &buf[0..size]);
 												if size == 0 {
 													// println!("Grandpa rekt");
 													break
 												}
-
-												// sst.write(&buf[0..size]).await.unwrap();
+												let mut msg = vec![0u8];
+                                                msg.extend_from_slice(&buf[0..size]);
+												tx.send(msg).await.unwrap();
+												neighbour_notif.write_all(&mut buf[0..size]).await.unwrap();
+												//sst.write(&buf[0..size]).await.unwrap();
 											}
 										// } else if proto == "/dot/kad" {
 										// 	sst.write(&buf[0..size]).await.unwrap();
